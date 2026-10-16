@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文字轉圖片產生器 - Text to Image Converter</title>
+    <!-- Favicon matching the header icon style -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2232%22 fill=%22url(%23grad)%22/><defs><linearGradient id=%22grad%22 x1=%220%22 y1=%220%22 x2=%221%22 y2=%221%22><stop offset=%220%25%22 stop-color=%22%23ec4899%22/><stop offset=%22100%22 stop-color=%22%23f43f5e%22/></linearGradient></defs><path d=%22M25 30h50c2.76 0 5 2.24 5 5v30c0 2.76-2.24 5-5 5H25c-2.76 0-5-2.24-5-5V35c0-2.76 2.24-5 5-5zm5 10a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm-5 25h50L60 45 45 60l-7-7-13 12z%22 fill=%22white%22/></svg>">
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+/* ===== 格式工具列 ===== */
+.tool-btn {
+    position: relative;
+    width: 2.25rem;
+    height: 2.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.75rem;
+    color: #4b5563;
+    transition: all 0.15s ease;
+}
+.tool-btn:hover {
+    background: #ffffff;
+    color: #db2777;
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.1);
+}
+.tool-btn:active { transform: scale(0.92); }
+.dark .tool-btn { color: #d1d5db; }
+.dark .tool-btn:hover { background: #1f2937; color: #f472b6; }
+
+/* 顏色圓點 */
+.swatch {
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 9999px;
+    box-shadow: 0 0 0 2px #ffffff, 0 0 0 3px rgb(0 0 0 / 0.08);
+    transition: transform 0.15s ease;
+}
+.dark .swatch { box-shadow: 0 0 0 2px #1f2937, 0 0 0 3px rgb(255 255 255 / 0.1); }
+.tool-btn:hover .swatch { transform: scale(1.15); }
+
+/* 分隔線 */
+.toolbar-divider {
+    width: 1px;
+    height: 1.5rem;
+    margin: 0 0.25rem;
+    background: #e5e7eb;
+}
+.dark .toolbar-divider { background: #374151; }
+
+/* 滑鼠移上時的小提示 */
+[data-tip]:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    background: #111827;
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 3px 8px;
+    border-radius: 6px;
+    pointer-events: none;
+    z-index: 30;
+}
+
+/* 隱藏數字框的上下箭咀，令外觀更簡潔 */
+#custom-size::-webkit-inner-spin-button,
+#custom-size::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+#custom-size { -moz-appearance: textfield; }
+
+/* 點進自定字級輸入框時，輸入框內仍顯示選取範圍 */
+::highlight(fake-selection) {
+    background-color: rgba(246, 59, 165, 0.45);
+}
+
+/* ===== 所見即所得輸入框 ===== */
+#input {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    outline: none;
+    cursor: text;
+}
+#input:empty::before {
+    content: attr(data-placeholder);
+    color: #9ca3af;
+    pointer-events: none;
+}
+.dark #input:empty::before { color: #4b5563; }
+#input b, #input strong { font-weight: 700; }
+
+/* ===== 即時預覽：自動縮放至可視範圍 ===== */
+#preview-wrapper {
+    min-width: 0;
+    overflow: hidden;
+}
+.preview-container {
+    width: 100%;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.preview-canvas-scaled {
+    display: block;
+    width: auto !important;
+    height: auto !important;
+    max-width: 100% !important;
+    max-height: 70vh;
+    border-radius: 0.75rem;
+    box-shadow: 0 10px 25px -5px rgb(0 0 0 / 0.15);
+    cursor: zoom-in;
+    transition: transform 0.2s ease;
+}
+.preview-canvas-scaled:hover { transform: scale(1.01); }
+
+/* ===== 放大檢視（Lightbox） ===== */
+#lightbox {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: rgb(0 0 0 / 0.85);
+    backdrop-filter: blur(4px);
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 1.5rem 1.5rem;
+    cursor: zoom-out;
+}
+
+/* ===== 輸入框捲軸 ===== */
+.custom-scrollbar::-webkit-scrollbar { width: 8px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 9999px; }
+.dark .custom-scrollbar::-webkit-scrollbar-thumb { background: #374151; }
+
+/* ===== 預覽區背景格紋 ===== */
+.pattern-grid-lg {
+    background-image:
+        linear-gradient(currentColor 1px, transparent 1px),
+        linear-gradient(to right, currentColor 1px, transparent 1px);
+    background-size: 40px 40px;
+}
+    </style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-950 text-gray-800 dark:text-gray-100 min-h-screen font-sans selection:bg-pink-500 selection:text-white transition-colors duration-300">
+
+    <!-- Header Navigation -->
+    <header class="border-b border-gray-200 dark:border-gray-800 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-pink-500 to-rose-400 flex items-center justify-center text-white shadow-lg shadow-pink-500/30">
+                    <i class="fas fa-file-image text-lg"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-base tracking-tight">文字轉圖片產生器</h1>
+                    <p class="text-xs text-gray-400">Text to Image Converter</p>
+                </div>
+            </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-8"> 
+        <div class="p-6 md:p-10 space-y-8 bg-white dark:bg-gray-900 rounded-3xl shadow-xl shadow-gray-100 dark:shadow-none border border-gray-100 dark:border-gray-800">
+
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-8">
+                <!-- Input Column -->
+                <div class="space-y-6 min-w-0">
+                    <!-- Dropzone & Input -->
+                    <div id="dropzone" class="relative group border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-3xl transition-all duration-300 bg-gray-50/50 dark:bg-gray-900/30">
+                        <div class="absolute top-3 right-3 flex space-x-2 z-10">
+                            <button onclick="clearAll()" class="p-2 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 hover:text-red-600 transition-all" title="清除文字">
+                                <i class="fas fa-eraser"></i>
+                            </button>
+                        </div>
+
+                        <!-- 所見即所得輸入框（取代原本的 textarea） -->
+                        <div id="input" contenteditable="true" role="textbox" aria-multiline="true" aria-label="文字輸入區域" spellcheck="false"
+                             class="w-full h-[26rem] overflow-y-auto resize-y pl-6 pr-14 py-8 text-base custom-scrollbar leading-relaxed font-sans"
+                             data-placeholder="在此輸入文字以生成圖片..."
+                             oninput="afterEdit()"></div>
+
+                        <div id="drop-overlay" class="hidden absolute inset-0 bg-pink-500/10 backdrop-blur-[2px] flex items-center justify-center pointer-events-none rounded-3xl z-20">
+                            <span class="text-lg font-bold text-gray-800 dark:text-white uppercase tracking-tight">放開滑鼠以讀取檔案</span>
+                        </div>
+                    </div>
+
+                    <!-- Formatting Toolbar -->
+                    <div class="flex flex-wrap items-center gap-1 p-1.5 bg-gray-50 dark:bg-gray-900/40 rounded-2xl border border-gray-100 dark:border-gray-800">
+
+                        <!-- 顏色 -->
+                        <button type="button" class="tool-btn" data-tip="紅色" aria-label="紅色"
+                                onmousedown="event.preventDefault()" onclick="applyColor('#dc2626')">
+                            <span class="swatch bg-red-600"></span>
+                        </button>
+                        <button type="button" class="tool-btn" data-tip="藍色" aria-label="藍色"
+                                onmousedown="event.preventDefault()" onclick="applyColor('#2563eb')">
+                            <span class="swatch bg-blue-600"></span>
+                        </button>
+                        <button type="button" class="tool-btn" data-tip="綠色" aria-label="綠色"
+                                onmousedown="event.preventDefault()" onclick="applyColor('#16a34a')">
+                            <span class="swatch bg-green-600"></span>
+                        </button>
+
+                        <span class="toolbar-divider"></span>
+
+                        <!-- 粗體 -->
+                        <button type="button" class="tool-btn" data-tip="粗體（Ctrl+B）" aria-label="粗體"
+                                onmousedown="event.preventDefault()" onclick="applyBold()">
+                            <i class="fas fa-bold"></i>
+                        </button>
+
+                        <span class="toolbar-divider"></span>
+
+                        <!-- 放大 110% -->
+                        <button type="button" class="tool-btn" data-tip="放大重點文字" aria-label="放大 115%"
+                                onmousedown="event.preventDefault()" onclick="applySize('115%')">
+                            <i class="fas fa-magnifying-glass-plus"></i>
+                        </button>
+
+                        <!-- 自訂像素 -->
+                        <div class="flex items-center h-9 pl-2.5 pr-1 ml-1 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus-within:border-pink-500 transition-all">
+                            <i class="fas fa-text-height text-gray-400 text-xs"></i>
+                            <input type="number" id="custom-size" value="48" min="8" max="400"
+                                   class="w-12 bg-transparent border-none text-sm text-center p-0 focus:ring-0 focus:outline-none"
+                                   aria-label="自訂字級（像素）"
+                                   onkeydown="if (event.key === 'Enter') { event.preventDefault(); applyCustomSize(); }">
+                            <span class="text-[11px] text-gray-400 mr-1">px</span>
+                            <button type="button" class="tool-btn !w-7 !h-7 !rounded-lg" data-tip="套用自訂字級" aria-label="套用自訂字級"
+                                    onmousedown="event.preventDefault()" onclick="applyCustomSize()">
+                                <i class="fas fa-check text-xs"></i>
+                            </button>
+                        </div>
+
+                        <span class="toolbar-divider"></span>
+
+                        <!-- 清除格式 -->
+                        <button type="button" class="tool-btn" data-tip="清除格式" aria-label="清除格式"
+                                onmousedown="event.preventDefault()" onclick="clearFormat()">
+                            <i class="fas fa-text-slash"></i>
+                        </button>
+                    </div>
+
+                    <!-- Collapsible Customization Controls -->
+                    <div class="bg-gray-50 dark:bg-gray-900/50 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
+                        <button onclick="toggleSettings()" class="w-full p-4 flex items-center justify-between text-left hover:bg-gray-100/50 dark:hover:bg-gray-800/50 transition-all">
+                            <span class="font-bold text-gray-900 dark:text-white text-sm uppercase tracking-wide flex items-center">
+                                <i class="fas fa-sliders-h mr-2 text-pink-500"></i> 進階外觀設定 (畫布寬度、邊距、字型大小)
+                            </span>
+                            <i id="settings-chevron" class="fas fa-chevron-down text-gray-400 transition-transform duration-300"></i>
+                        </button>
+
+                        <div id="settings-panel" class="hidden p-6 pt-0 space-y-4 border-t border-gray-100 dark:border-gray-800/60 mt-2">
+                            <div class="grid grid-cols-2 gap-4 pt-2">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-500 mb-1">整體字體大小（px）</label>
+                                    <input type="number" id="font-size" value="30" min="10" max="200" class="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm p-2.5 focus:ring-pink-500 focus:border-pink-500" oninput="drawCanvas()">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-500 mb-1">整體文字顏色</label>
+                                    <div class="flex items-center space-x-2 pt-1">
+                                        <button onclick="setBaseColor('#1f2937')" class="w-7 h-7 rounded-full bg-gray-800 border-2 border-white shadow cursor-pointer" title="黑色"></button>
+                                        <button onclick="setBaseColor('#dc2626')" class="w-7 h-7 rounded-full bg-red-600 border-2 border-white shadow cursor-pointer" title="紅色"></button>
+                                        <button onclick="setBaseColor('#16a34a')" class="w-7 h-7 rounded-full bg-green-600 border-2 border-white shadow cursor-pointer" title="綠色"></button>
+                                        <button onclick="setBaseColor('#2563eb')" class="w-7 h-7 rounded-full bg-blue-600 border-2 border-white shadow cursor-pointer" title="藍色"></button>
+                                    </div>
+                                    <input type="hidden" id="text-color" value="#1f2937">
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="flex items-center space-x-3 bg-white dark:bg-gray-800 p-2.5 rounded-xl border border-gray-200 dark:border-gray-700">
+                                    <input type="color" id="bg-color" value="#ffffff" oninput="drawCanvas()" title="背景顏色" class="w-8 h-8 rounded border-0 cursor-pointer bg-transparent">
+                                    <span class="text-xs font-medium">背景顏色</span>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-500 mb-1">對齊方式</label>
+                                    <div class="grid grid-cols-3 gap-1">
+                                        <button onclick="setAlignment('left')" id="align-left-btn" class="p-1.5 rounded-lg bg-white dark:bg-gray-800 border-2 border-pink-500 text-pink-600 text-xs font-medium shadow-sm">靠左</button>
+                                        <button onclick="setAlignment('center')" id="align-center-btn" class="p-1.5 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 text-xs font-medium">置中</button>
+                                        <button onclick="setAlignment('right')" id="align-right-btn" class="p-1.5 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 text-xs font-medium">靠右</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-500 mb-1">畫布固定寬度（px）</label>
+                                    <input type="number" id="canvas-width" value="1800" min="200" step="50" class="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm p-2.5 focus:ring-pink-500 focus:border-pink-500" oninput="drawCanvas()">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-500 mb-1">邊距內襯（px）</label>
+                                    <input type="number" id="padding-size" value="30" min="5" max="150" class="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm p-2.5 focus:ring-pink-500 focus:border-pink-500" oninput="drawCanvas()">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Preview Column -->
+                <div class="flex flex-col space-y-4 min-w-0">
+                    <div class="flex items-center justify-between">
+                        <label class="text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest">
+                            <i class="fas fa-eye mr-2 text-pink-500"></i> 即時預覽
+                        </label>
+                        <button id="download-btn" onclick="downloadImage()" class="hidden flex items-center px-6 py-2.5 text-xs font-black bg-pink-600 text-white rounded-xl hover:bg-pink-700 hover:shadow-lg hover:shadow-pink-500/30 transition-all active:scale-95 shadow-md">
+                            <i class="fas fa-download mr-2"></i> 下載圖片
+                        </button>
+                    </div>
+
+                    <!-- Responsive preview wrapper -->
+                    <div id="preview-wrapper" class="hidden flex-grow bg-gray-100 dark:bg-gray-950 rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-800 flex items-center justify-center p-4 relative min-h-[480px]">
+                        <div class="absolute inset-0 pattern-grid-lg opacity-5 pointer-events-none"></div>
+                        <div class="preview-container">
+                            <canvas id="previewCanvas" class="preview-canvas-scaled" onclick="openLightbox()" title="點擊放大檢視清晰全貌"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Empty state placeholder when no text -->
+                    <div id="empty-state" class="flex-grow bg-gray-50 dark:bg-gray-900/40 rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-800 flex flex-col items-center justify-center p-8 text-center min-h-[480px]">
+                        <div class="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-400 mb-4">
+                            <i class="fas fa-keyboard text-2xl"></i>
+                        </div>
+                        <h4 class="font-bold text-gray-700 dark:text-gray-300 text-sm mb-1">尚未輸入文字</h4>
+                        <p class="text-xs text-gray-400 max-w-xs">請在左側輸入框輸入文字或上傳檔案，即時預覽與下載功能將會自動顯示。</p>
+                    </div>
+
+                    <p id="preview-hint" class="hidden text-center text-xs text-gray-400 dark:text-gray-500">
+                        提示：點擊預覽圖片可放大檢視，下載後檔名固定為 text_image.jpg。
+                    </p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Lightbox Modal -->
+    <div id="lightbox" onclick="closeLightbox()">
+        <div class="relative max-w-full max-h-full flex flex-col items-center">
+            <button class="absolute -top-10 right-0 text-white text-xl bg-gray-800 hover:bg-gray-700 rounded-full w-8 h-8 flex items-center justify-center" onclick="closeLightbox()">&times;</button>
+            <img id="lightbox-img" class="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl" alt="放大預覽">
+            <span class="text-white text-xs mt-3 bg-black/60 px-4 py-1.5 rounded-full">點擊任意處關閉放大檢視</span>
+        </div>
+    </div>
+
+    <!-- Toast notification -->
+    <div id="toast" class="fixed bottom-6 right-6 z-50 transform translate-y-20 opacity-0 transition-all duration-300 bg-gray-900 text-white dark:bg-white dark:text-gray-900 px-6 py-3 rounded-2xl shadow-2xl font-medium text-sm flex items-center space-x-3">
+        <i id="toast-icon" class="fas fa-check-circle text-pink-500"></i>
+        <span id="toast-message">操作成功</span>
+    </div>
+
+    <!-- Script Logic -->
+    <script>
+        let currentAlignment = 'left';
+        const fontFamily = "'Inter', 'Noto Sans TC', sans-serif";
+        const editor = document.getElementById('input');
+        const EDITOR_BASE_PX = 16;   // 輸入框內的基本字級（只影響輸入框顯示，不影響圖片）
+        const colorMap = { red: '#dc2626', blue: '#2563eb', green: '#16a34a', black: '#1f2937' };
+
+        // 按 Enter 時統一產生 <div> 分行
+        document.execCommand('defaultParagraphSeparator', false, 'div');
+
+        function toggleDarkMode() {
+            document.documentElement.classList.toggle('dark');
+            const isDark = document.documentElement.classList.contains('dark');
+            const bgColorInput = document.getElementById('bg-color');
+            if (isDark && bgColorInput.value === '#ffffff') {
+                bgColorInput.value = '#111827';
+                drawCanvas();
+            } else if (!isDark && bgColorInput.value === '#111827') {
+                bgColorInput.value = '#ffffff';
+                drawCanvas();
+            }
+        }
+
+        function toggleSettings() {
+            const panel = document.getElementById('settings-panel');
+            const chevron = document.getElementById('settings-chevron');
+            panel.classList.toggle('hidden');
+            chevron.classList.toggle('rotate-180');
+        }
+
+        function setBaseColor(color) {
+            document.getElementById('text-color').value = color;
+            drawCanvas();
+        }
+
+        function setAlignment(align) {
+            currentAlignment = align;
+            ['left', 'center', 'right'].forEach(a => {
+                const btn = document.getElementById(`align-${a}-btn`);
+                if (a === align) {
+                    btn.className = "p-1.5 rounded-lg bg-white dark:bg-gray-800 border-2 border-pink-500 text-pink-600 text-xs font-medium shadow-sm";
+                } else {
+                    btn.className = "p-1.5 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 text-xs font-medium";
+                }
+            });
+            drawCanvas();
+        }
+
+        /* ================= 選取範圍記憶 ================= */
+        // 點擊數字框時，輸入框的反白會消失，所以先把選取範圍記住
+        let savedRange = null;
+        document.addEventListener('selectionchange', () => {
+            const sel = window.getSelection();
+            if (sel.rangeCount && editor.contains(sel.anchorNode)) {
+                savedRange = sel.getRangeAt(0).cloneRange();
+            }
+        });
+
+        function getSelectedRange() {
+            const sel = window.getSelection();
+            let range = null;
+            if (sel.rangeCount && editor.contains(sel.anchorNode)) {
+                range = sel.getRangeAt(0);
+            } else if (savedRange) {
+                editor.focus();
+                sel.removeAllRanges();
+                sel.addRange(savedRange);
+                range = savedRange;
+            }
+            if (!range || range.collapsed || !editor.contains(range.commonAncestorContainer)) {
+                showToast('請先在輸入框選取要設定的文字', 'error');
+                return null;
+            }
+            return range;
+        }
+
+        /* ================= 自定字級時保留選取範圍的顯示 ================= */
+        const customSizeInput = document.getElementById('custom-size');
+
+        // 在剛才選取的文字上畫藍色底色
+        function showFakeSelection() {
+            if (!window.CSS || !CSS.highlights || !savedRange || savedRange.collapsed) return;
+            CSS.highlights.set('fake-selection', new Highlight(savedRange));
+        }
+
+        // 移除藍色底色
+        function hideFakeSelection() {
+            if (window.CSS && CSS.highlights) CSS.highlights.delete('fake-selection');
+        }
+
+        customSizeInput.addEventListener('focus', showFakeSelection);  // 點進字級框時顯示
+        customSizeInput.addEventListener('blur', hideFakeSelection);   // 離開字級框時移除
+
+        /* ================= 格式功能 ================= */
+        function applyColor(color) {
+            if (!getSelectedRange()) return;
+            document.execCommand('styleWithCSS', false, false);
+            document.execCommand('foreColor', false, color);
+            afterEdit();
+        }
+
+        function applyBold() {
+            if (!getSelectedRange()) return;
+            document.execCommand('styleWithCSS', false, false);
+            document.execCommand('bold');
+            afterEdit();
+        }
+
+        function applySize(sizeValue) {
+            const range = getSelectedRange();
+            if (!range) return;
+
+            // 如果選取的文字在另一個字級標記裏面，先把外層拆開，避免外層字級撐高行距
+            let outer = null;
+            let n = range.commonAncestorContainer;
+            while (n && n !== editor) {
+                if (n.nodeType === 1 && n.dataset && n.dataset.size) outer = n;
+                n = n.parentNode;
+            }
+            if (outer) {
+                const hasStuff = f => f.textContent || f.querySelector('br');
+                const before = document.createRange();
+                before.setStart(outer, 0);
+                before.setEnd(range.startContainer, range.startOffset);
+                const after = document.createRange();
+                after.setStart(range.endContainer, range.endOffset);
+                after.setEnd(outer, outer.childNodes.length);
+
+                const beforeFrag = before.extractContents();
+                const afterFrag = after.extractContents();
+                const parent = outer.parentNode;
+
+                // 選取範圍前後的文字保留原本字級
+                if (hasStuff(beforeFrag)) {
+                    const b = outer.cloneNode(false);
+                    b.appendChild(beforeFrag);
+                    parent.insertBefore(b, outer);
+                }
+                if (hasStuff(afterFrag)) {
+                    const a = outer.cloneNode(false);
+                    a.appendChild(afterFrag);
+                    parent.insertBefore(a, outer.nextSibling);
+                }
+
+                // 拆走外層，只留下選取的文字
+                const first = outer.firstChild, last = outer.lastChild;
+                outer.replaceWith(...outer.childNodes);
+                if (!first) return;
+                range.setStartBefore(first);
+                range.setEndAfter(last);
+            }
+
+            const frag = range.extractContents();
+            // 移除選取範圍內原有的字級，令新字級統一套用
+            frag.querySelectorAll('[data-size]').forEach(el => {
+                el.removeAttribute('data-size');
+                el.style.fontSize = '';
+                if (el.tagName === 'SPAN' && !el.getAttribute('style')) {
+                    el.replaceWith(...el.childNodes);
+                }
+            });
+
+            const span = document.createElement('span');
+            span.dataset.size = sizeValue;
+            span.appendChild(frag);
+            range.insertNode(span);
+
+            // 清走沒有文字的殘留標記（字級、顏色、粗體）
+            editor.querySelectorAll('span[data-size], font, b, strong').forEach(el => {
+                if (!el.textContent && !el.querySelector('br')) el.remove();
+            });
+
+            // 重新選取剛設定的文字，方便繼續按粗體、顏色等
+            const sel = window.getSelection();
+            const r = document.createRange();
+            r.selectNodeContents(span);
+            sel.removeAllRanges();
+            sel.addRange(r);
+            savedRange = r.cloneRange();
+
+            afterEdit();
+        }
+
+        function applyCustomSize() {
+            const v = parseInt(document.getElementById('custom-size').value);
+            if (!v || v < 8 || v > 400) {
+                showToast('請輸入 8 至 400 之間的字級', 'error');
+                return;
+            }
+            applySize(String(v));
+        }
+
+        function clearFormat() {
+            if (!getSelectedRange()) return;
+            document.execCommand('removeFormat');   // 清除粗體及顏色
+            applySize('100%');                      // 字級還原為預設
+        }
+
+        // 令輸入框內的放大效果與圖片比例一致
+        function refreshEditorSizes(canvasBase) {
+            editor.querySelectorAll('[data-size]').forEach(el => {
+                const raw = el.dataset.size.trim();
+                const v = parseFloat(raw);
+                if (!v) return;
+                let px = raw.endsWith('%') ? EDITOR_BASE_PX * v / 100 : EDITOR_BASE_PX * v / canvasBase;
+                px = Math.round(Math.min(72, Math.max(10, px)) * 10) / 10;
+                if (el.style.fontSize !== px + 'px') el.style.fontSize = px + 'px';
+            });
+        }
+
+        function afterEdit() {
+            if (editor.innerHTML === '<br>') editor.innerHTML = '';   // 令提示文字重新出現
+            drawCanvas();
+        }
+
+        /* ================= 舊代碼轉換（上載檔案／貼上時） ================= */
+        function escapeHtml(s) {
+            return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function markupToHtml(text) {
+            return escapeHtml(text.replace(/\r\n?/g, '\n'))
+                .replace(/\[color=(red|blue|green|black|#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3})\]/gi,
+                         (m, c) => `<font color="${colorMap[c.toLowerCase()] || c}">`)
+                .replace(/\[\/color\]/gi, '</font>')
+                .replace(/\[size=(\d{1,3}(?:\.\d+)?%?)\]/gi, '<span data-size="$1">')
+                .replace(/\[\/size\]/gi, '</span>')
+                .replace(/\*\*([\s\S]*?)\*\*/g, '<b>$1</b>')
+                .replace(/\n/g, '<br>');
+        }
+
+        function insertHtmlAtCursor(html) {
+            const sel = window.getSelection();
+            if (!sel.rangeCount) return;
+            const range = sel.getRangeAt(0);
+            range.deleteContents();
+            const tpl = document.createElement('template');
+            tpl.innerHTML = html;
+            const last = tpl.content.lastChild;
+            range.insertNode(tpl.content);
+            if (last) {
+                range.setStartAfter(last);
+                range.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(range);
+            }
+        }
+
+        // 貼上時只保留純文字（避免從網頁貼入奇怪格式），舊代碼則自動轉換
+        editor.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+            if (/\[(color|size)=|\[\/(color|size)\]|\*\*/i.test(text)) {
+                insertHtmlAtCursor(markupToHtml(text));
+            } else {
+                document.execCommand('insertText', false, text);
+            }
+            afterEdit();
+        });
+
+        function clearAll() {
+            editor.innerHTML = '';
+            editor.scrollTop = 0;
+            savedRange = null;
+            drawCanvas();
+            showToast('已清除所有文字內容', 'info');
+        }
+
+        /* ================= 檔案上載／拖放 ================= */
+
+        const dropzone = document.getElementById('dropzone');
+        const dropOverlay = document.getElementById('drop-overlay');
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropzone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                dropOverlay.classList.remove('hidden');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropzone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                dropOverlay.classList.add('hidden');
+            }, false);
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+            const file = e.dataTransfer.files[0];
+            if (file) readFileContent(file);
+        });
+
+        function readFileContent(file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                editor.innerHTML = markupToHtml(e.target.result);
+                editor.scrollTop = 0;
+                drawCanvas();
+                showToast(`成功載入檔案：${file.name}`);
+            };
+            reader.onerror = function() {
+                showToast('讀取檔案失敗，請檢查檔案格式', 'error');
+            };
+            reader.readAsText(file);
+        }
+
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const msgEl = document.getElementById('toast-message');
+            const iconEl = document.getElementById('toast-icon');
+
+            msgEl.textContent = message;
+            iconEl.className = type === 'error' ? 'fas fa-exclamation-circle text-red-500' : 'fas fa-check-circle text-pink-500';
+
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            clearTimeout(showToast._t);
+            showToast._t = setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3000);
+        }
+
+        function openLightbox() {
+            const canvas = document.getElementById('previewCanvas');
+            const lightbox = document.getElementById('lightbox');
+            const lightboxImg = document.getElementById('lightbox-img');
+            lightboxImg.src = canvas.toDataURL('image/jpeg', 0.95);
+            lightbox.style.display = 'flex';
+        }
+
+        function closeLightbox() {
+            document.getElementById('lightbox').style.display = 'none';
+        }
+
+        /* ================= 讀取輸入框格式 → 畫布用的文字資料 ================= */
+        function parseEditor(root, baseFontSize, baseColor) {
+            const lines = [[]];
+            let lineHasContent = false;
+            const newLine = () => { lines.push([]); lineHasContent = false; };
+
+            const sizeToPx = (raw) => {
+                raw = raw.trim();
+                const v = parseFloat(raw);
+                if (!v) return null;
+                const px = raw.endsWith('%') ? baseFontSize * v / 100 : v;
+                return Math.round(Math.min(400, Math.max(8, px)));
+            };
+
+            function walk(node, st) {
+                node.childNodes.forEach(child => {
+                    // 文字
+                    if (child.nodeType === Node.TEXT_NODE) {
+                        for (const ch of child.nodeValue) {
+                            if (ch === '\n') { newLine(); continue; }
+                            if (ch === '\r' || ch === '\u200b') continue;
+                            lines[lines.length - 1].push({
+                                text: ch === '\u00a0' ? ' ' : ch,
+                                bold: st.bold,
+                                color: st.color,
+                                size: st.size
+                            });
+                            lineHasContent = true;
+                        }
+                        return;
+                    }
+                    if (child.nodeType !== Node.ELEMENT_NODE) return;
+
+                    const tag = child.tagName;
+                    if (tag === 'BR') { newLine(); return; }
+
+                    const isBlock = tag === 'DIV' || tag === 'P' || tag === 'LI';
+                    if (isBlock && lineHasContent) newLine();
+
+                    // 讀取此元素的格式
+                    const s = { ...st };
+                    if (tag === 'B' || tag === 'STRONG') s.bold = true;
+                    const fw = child.style.fontWeight;
+                    if (fw) s.bold = (fw === 'bold' || fw === 'bolder' || parseInt(fw) >= 600);
+                    if (tag === 'FONT' && child.getAttribute('color')) s.color = child.getAttribute('color');
+                    if (child.style.color) s.color = child.style.color;
+                    if (child.dataset && child.dataset.size) {
+                        const px = sizeToPx(child.dataset.size);
+                        if (px) s.size = px;
+                    }
+
+                    walk(child, s);
+
+                    if (isBlock && lineHasContent) newLine();
+                });
+            }
+
+            walk(root, { bold: false, color: baseColor, size: baseFontSize });
+
+            // 去掉最尾多出的一個空行
+            if (lines.length > 1 && lines[lines.length - 1].length === 0) lines.pop();
+            return lines;
+        }
+
+        function drawCanvas() {
+            const baseFontSize = parseInt(document.getElementById('font-size').value) || 30;
+            refreshEditorSizes(baseFontSize);
+
+            const text = editor.innerText;
+            const previewWrapper = document.getElementById('preview-wrapper');
+            const emptyState = document.getElementById('empty-state');
+            const downloadBtn = document.getElementById('download-btn');
+            const previewHint = document.getElementById('preview-hint');
+
+            if (!text || text.trim() === '') {
+                previewWrapper.classList.add('hidden');
+                downloadBtn.classList.add('hidden');
+                previewHint.classList.add('hidden');
+                emptyState.classList.remove('hidden');
+                return;
+            } else {
+                previewWrapper.classList.remove('hidden');
+                downloadBtn.classList.remove('hidden');
+                previewHint.classList.remove('hidden');
+                emptyState.classList.add('hidden');
+            }
+
+            const canvas = document.getElementById('previewCanvas');
+            const ctx = canvas.getContext('2d');
+            const baseTextColor = document.getElementById('text-color').value;
+            const bgColor = document.getElementById('bg-color').value;
+            const customWidthInput = parseInt(document.getElementById('canvas-width').value) || 1800;
+            const padding = parseInt(document.getElementById('padding-size').value) || 30;
+
+            let maxAllowedWidth = customWidthInput - (padding * 2);
+            if (maxAllowedWidth < 100) maxAllowedWidth = 100;
+
+            const parsedParagraphs = parseEditor(editor, baseFontSize, baseTextColor);
+            let lines = [];
+
+            // Word/Character wrapping logic
+            parsedParagraphs.forEach(tokens => {
+                if (tokens.length === 0) {
+                    lines.push([]);
+                    return;
+                }
+
+                let currentLine = [];
+                let currentLineWidth = 0;
+
+                let i = 0;
+                while (i < tokens.length) {
+                    let chunk = [];
+                    let isEnglishWord = /^[a-zA-Z0-9]$/.test(tokens[i].text);
+
+                    while (i < tokens.length) {
+                        let t = tokens[i];
+                        let isAlphaNum = /^[a-zA-Z0-9]$/.test(t.text);
+                        if (chunk.length === 0) {
+                            chunk.push(t);
+                            i++;
+                            isEnglishWord = isAlphaNum;
+                        } else {
+                            let last = chunk[chunk.length - 1];
+                            if (isEnglishWord && isAlphaNum && last.bold === t.bold && last.color === t.color && last.size === t.size) {
+                                chunk.push(t);
+                                i++;
+                            } else {
+                                break;
+                            }
+                        }
+                        if (!isEnglishWord) break;
+                    }
+
+                    let chunkText = chunk.map(c => c.text).join('');
+                    let sampleToken = chunk[0];
+                    ctx.font = `${sampleToken.bold ? 'bold ' : ''}${sampleToken.size}px ${fontFamily}`;
+                    let chunkWidth = ctx.measureText(chunkText).width;
+
+                    if (currentLineWidth + chunkWidth > maxAllowedWidth && currentLine.length > 0) {
+                        lines.push(currentLine);
+                        currentLine = chunk.map(c => ({ ...c }));
+                        currentLineWidth = chunkWidth;
+                    } else {
+                        for (let cToken of chunk) {
+                            if (currentLine.length > 0) {
+                                let lastT = currentLine[currentLine.length - 1];
+                                if (lastT.bold === cToken.bold && lastT.color === cToken.color && lastT.size === cToken.size) {
+                                    lastT.text += cToken.text;
+                                } else {
+                                    currentLine.push({ ...cToken });
+                                }
+                            } else {
+                                currentLine.push({ ...cToken });
+                            }
+                        }
+                        currentLineWidth += chunkWidth;
+                    }
+                }
+
+                if (currentLine.length > 0) {
+                    lines.push(currentLine);
+                }
+            });
+
+            if (lines.length === 0) lines = [[]];
+
+            let totalHeight = padding * 2;
+            let lineHeights = lines.map(lineTokens => {
+                if (lineTokens.length === 0) return baseFontSize * 1.5;
+                let maxSz = Math.max(...lineTokens.map(t => t.size));
+                return maxSz * 1.5;
+            });
+
+            totalHeight += lineHeights.reduce((a, b) => a + b, 0);
+
+            const calculatedWidth = customWidthInput;
+            const calculatedHeight = Math.max(200, totalHeight);
+
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = calculatedWidth * dpr;
+            canvas.height = calculatedHeight * dpr;
+            canvas.style.width = calculatedWidth + 'px';
+            canvas.style.height = calculatedHeight + 'px';
+
+            ctx.scale(dpr, dpr);
+
+            ctx.fillStyle = bgColor;
+            ctx.fillRect(0, 0, calculatedWidth, calculatedHeight);
+            ctx.textBaseline = 'alphabetic';
+
+            let y = padding;
+            lines.forEach((lineTokens, lineIdx) => {
+                const lineHeight = lineHeights[lineIdx];
+                const maxSz = lineTokens.length ? Math.max(...lineTokens.map(t => t.size)) : baseFontSize;
+                // 以該行最大字級計算共同基線，令大小字底部對齊
+                const baselineY = y + (lineHeight - maxSz) / 2 + maxSz * 0.88;
+
+                let lineWidth = 0;
+                lineTokens.forEach(t => {
+                    ctx.font = `${t.bold ? 'bold ' : ''}${t.size}px ${fontFamily}`;
+                    lineWidth += ctx.measureText(t.text).width;
+                });
+
+                let x = padding;
+                if (currentAlignment === 'center') {
+                    x = (calculatedWidth - lineWidth) / 2;
+                } else if (currentAlignment === 'right') {
+                    x = calculatedWidth - padding - lineWidth;
+                }
+
+                lineTokens.forEach(t => {
+                    ctx.font = `${t.bold ? 'bold ' : ''}${t.size}px ${fontFamily}`;
+                    ctx.fillStyle = t.color;
+                    ctx.fillText(t.text, x, baselineY);
+                    x += ctx.measureText(t.text).width;
+                });
+
+                y += lineHeight;
+            });
+        }
+
+        function downloadImage() {
+            const canvas = document.getElementById('previewCanvas');
+            const link = document.createElement('a');
+            link.download = 'text_image.jpg';
+            link.href = canvas.toDataURL('image/jpeg', 0.95);
+            link.click();
+            showToast('圖片已成功下載為 text_image.jpg！');
+        }
+
+        window.onload = function() {
+            drawCanvas();
+            if (document.fonts && document.fonts.ready) {
+                document.fonts.ready.then(drawCanvas);
+            }
+        };
+    </script>
+</body>
+</html>
